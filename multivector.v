@@ -345,9 +345,77 @@ pub fn (m Multivector) undual() Multivector {
 	return m.dual().neg()
 }
 
-// meet returns self v other = (self* ^ other*)*, e.g. meet(e12, e13) = e1.
+// meet returns the largest common subblade (intersection) of the blades self
+// and o.  When their union spans the full 3D space the classic dual formula
+// (self* ^ o*)* applies; containment cases return the contained blade, e.g.
+// meet(e1, e12) = e1 and meet(e12, e13) = e1.  Non-blade inputs panic.
 pub fn (m Multivector) meet(o Multivector) Multivector {
-	return m.dual().op(o.dual()).dual()
+	if m.is_zero() || o.is_zero() {
+		return mv_zero()
+	}
+	ga := m.blade_grade()
+	gb := o.blade_grade()
+	if ga < 0 || gb < 0 {
+		panic('meet: arguments must be blades')
+	}
+	if ga == 0 || gb == 0 {
+		return mv_zero()
+	}
+	if !m.op(o).is_zero() {
+		return mv_zero()
+	}
+	// The blades share a non-trivial subblade.
+	if ga < gb {
+		return m
+	}
+	if gb < ga {
+		return o
+	}
+	// Equal grades: parallel vectors / coincident planes / the pseudoscalar
+	// itself share their whole span; distinct planes (possible for grade 2
+	// in 3D) meet in their intersection line.
+	d := m.dual().op(o.dual())
+	if d.is_zero() {
+		return m
+	}
+	return d.dual()
+}
+
+// join returns the smallest blade (union span) containing both blades self
+// and o: their wedge when they are independent, the larger containing blade
+// when they share a subblade, or the pseudoscalar for two distinct planes.
+pub fn (m Multivector) join(o Multivector) Multivector {
+	if m.is_zero() {
+		return o
+	}
+	if o.is_zero() {
+		return m
+	}
+	ga := m.blade_grade()
+	gb := o.blade_grade()
+	if ga < 0 || gb < 0 {
+		panic('join: arguments must be blades')
+	}
+	if ga == 0 {
+		return o
+	}
+	if gb == 0 {
+		return m
+	}
+	w := m.op(o)
+	if !w.is_zero() {
+		return w
+	}
+	if ga < gb {
+		return o
+	}
+	if gb < ga {
+		return m
+	}
+	if m.dual().op(o.dual()).is_zero() {
+		return m
+	}
+	return pseudoscalar()
 }
 
 // norm returns the euclidean norm sqrt(|<self.reverse(self)>_0|).
@@ -363,6 +431,87 @@ pub fn (m Multivector) normalized() Multivector {
 		return mv_zero()
 	}
 	return m.div_scalar(n)
+}
+
+// inverse returns A^-1 = rev(A)/(A rev(A))_0 for an invertible blade or
+// versor; a general multivector with a non-scalar A*rev(A) panics.
+pub fn (m Multivector) inverse() Multivector {
+	prod := m.gp(m.reverse())
+	s := prod.values[0]
+	if math.abs(s) < 1e-12 || !prod.grade(0).eq(prod) {
+		panic('inverse: only blades and versors with nonzero norm are supported')
+	}
+	return m.reverse().div_scalar(s)
+}
+
+// lc is the left contraction A _| B: sums of <_A_g _B_h>_(h-g) for g <= h.
+pub fn (m Multivector) lc(o Multivector) Multivector {
+	mut res := Multivector{}
+	for ga in 1 .. num_grades {
+		a_g := m.grade(ga)
+		if a_g.is_zero() {
+			continue
+		}
+		for gb in ga .. num_grades {
+			b_g := o.grade(gb)
+			if b_g.is_zero() {
+				continue
+			}
+			res = res.add(a_g.gp(b_g).grade(gb - ga))
+		}
+	}
+	return res
+}
+
+// rc is the right contraction A |_ B: sums of <_A_g _B_h>_(g-h) for g >= h.
+pub fn (m Multivector) rc(o Multivector) Multivector {
+	mut res := Multivector{}
+	for ga in 1 .. num_grades {
+		a_g := m.grade(ga)
+		if a_g.is_zero() {
+			continue
+		}
+		for gb in 1 .. ga + 1 {
+			b_g := o.grade(gb)
+			if b_g.is_zero() {
+				continue
+			}
+			res = res.add(a_g.gp(b_g).grade(ga - gb))
+		}
+	}
+	return res
+}
+
+// commutator returns [self, o] = (self o - o self) / 2, the Lie bracket of
+// the even subalgebra when both operands are even.
+pub fn (m Multivector) commutator(o Multivector) Multivector {
+	return m.gp(o).sub(o.gp(m)).mul_scalar(0.5)
+}
+
+// anticommutator returns {self, o} = (self o + o self) / 2.
+pub fn (m Multivector) anticommutator(o Multivector) Multivector {
+	return m.gp(o).add(o.gp(m)).mul_scalar(0.5)
+}
+
+// proj projects self onto the blade o: (self . o) o^-1.
+pub fn (m Multivector) proj(o Multivector) Multivector {
+	return m.ip(o).gp(o.inverse())
+}
+
+// rej returns the part of self orthogonal to the blade o.
+pub fn (m Multivector) rej(o Multivector) Multivector {
+	return m.sub(m.proj(o))
+}
+
+// reflect mirrors self across the plane with the given normal:
+// v' = -n v n, where n is the normalized normal; works for vectors and blades.
+pub fn (m Multivector) reflect(normal [3]f64) Multivector {
+	len2 := normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]
+	if len2 < 1e-18 {
+		panic('reflect: zero normal')
+	}
+	n := mv_vector(normal[0], normal[1], normal[2]).div_scalar(math.sqrt(len2))
+	return n.gp(m).gp(n).neg()
 }
 
 // --- rotors (even subalgebra = quaternions) ---------------------------------
@@ -446,6 +595,22 @@ pub fn interpolate(r1 Multivector, r2 Multivector, t f64) Multivector {
 }
 
 // --- helpers ----------------------------------------------------------------
+
+// blade_grade returns the grade of a pure blade, or -1 when the multivector
+// holds mixed grades or is zero.
+fn (m Multivector) blade_grade() int {
+	mut g := -1
+	for i in 0 .. num_components {
+		if m.values[i] != 0.0 {
+			gi := popcount(i)
+			if g != -1 && gi != g {
+				return -1
+			}
+			g = gi
+		}
+	}
+	return g
+}
 
 // popcount counts the set bits of a small non-negative integer.
 fn popcount(x int) int {

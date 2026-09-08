@@ -263,3 +263,84 @@ fn test_operators_str() {
 	assert mv_zero().str().contains('0')
 	assert almost(pseudoscalar().pseudoscalar_part(), 1.0)
 }
+
+fn test_join() {
+	assert mv_equal(e1().join(e2()), mv_bivector(1.0, 0.0, 0.0))
+	// containment: join is the larger blade
+	assert mv_equal(e1().join(mv_bivector(1.0, 0.0, 0.0)), mv_bivector(1.0, 0.0, 0.0))
+	// independent line and plane span the whole space
+	assert mv_equal(e1().join(mv_bivector(0.0, 0.0, 1.0)), pseudoscalar())
+	// distinct planes through a common line span the whole space
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).join(mv_bivector(0.0, 1.0, 0.0)), pseudoscalar())
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).join(mv_bivector(0.0, 0.0, 1.0)), pseudoscalar())
+	// distinct plane that shares only a line with e12 (2e12 + e23)
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).join(mv_bivector(2.0, 0.0, 1.0)), pseudoscalar())
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).join(mv_bivector(1.0, 0.0, 0.0)), mv_bivector(1.0, 0.0, 0.0))
+	// parallel vectors share the same span
+	assert mv_equal(e2().join(e2().mul_scalar(-3.0)), e2())
+	// scalar / zero blades join as the empty blade
+	assert mv_equal(mv_scalar(2.0).join(e1()), e1())
+	assert mv_equal(mv_zero().join(e1()), e1())
+	assert mv_equal(pseudoscalar().join(e1()), pseudoscalar())
+}
+
+fn test_meet_containment() {
+	// containment cases that the dual formula alone gets wrong
+	assert mv_equal(e1().meet(mv_bivector(1.0, 0.0, 0.0)), e1())
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).meet(e1()), e1())
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).meet(mv_bivector(1.0, 0.0, 0.0)), mv_bivector(1.0, 0.0, 0.0))
+	assert mv_equal(e1().meet(pseudoscalar()), e1())
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).meet(pseudoscalar()), mv_bivector(1.0, 0.0, 0.0))
+	// disjoint blades meet in the empty blade
+	assert mv_equal(e1().meet(e2()), mv_zero())
+	assert mv_equal(e1().meet(mv_bivector(0.0, 0.0, 1.0)), mv_zero())
+	assert mv_equal(mv_scalar(3.0).meet(e1()), mv_zero())
+	// distinct planes meet in their intersection line
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).meet(mv_bivector(0.0, 1.0, 0.0)), e1())
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).meet(mv_bivector(0.0, 0.0, 1.0)), e2())
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).meet(mv_bivector(2.0, 0.0, 1.0)), e2())
+}
+
+fn test_inverse() {
+	// blade inverse: A rev(A) = |A|^2, so e12^-1 = -e12
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).inverse(), mv_bivector(-1.0, 0.0, 0.0))
+	v := mv_vector(1.0, 2.0, 2.0)
+	assert mv_equal(v.gp(v.inverse()), mv_scalar(1.0))
+	r := rotor([1.0, 2.0, 3.0]!, 1.234)
+	assert mv_equal(r.gp(r.inverse()), mv_scalar(1.0))
+	assert mv_equal(r.inverse(), r.reverse())
+}
+
+fn test_projection_rejection() {
+	plane := mv_bivector(1.0, 0.0, 0.0)
+	v := mv_vector(1.0, 2.0, 3.0)
+	assert mv_equal(v.proj(plane), mv_vector(1.0, 2.0, 0.0))
+	assert mv_equal(v.rej(plane), mv_vector(0.0, 0.0, 3.0))
+	assert mv_equal(v.proj(plane).add(v.rej(plane)), v)
+	assert mv_equal(mv_vector(1.0, 2.0, 3.0).proj(e1()), mv_vector(1.0, 0.0, 0.0))
+	assert mv_equal(e3().proj(plane), mv_zero())
+}
+
+fn test_reflect() {
+	v := mv_vector(1.0, 2.0, 3.0)
+	assert mv_equal(v.reflect([0.0, 0.0, 1.0]!), mv_vector(1.0, 2.0, -3.0))
+	assert mv_equal(v.reflect([1.0, 0.0, 0.0]!), mv_vector(-1.0, 2.0, 3.0))
+	// the normal is normalized internally
+	assert mv_equal(v.reflect([0.0, 0.0, 2.0]!), mv_vector(1.0, 2.0, -3.0))
+	assert mv_equal(e3().reflect([0.0, 0.0, 1.0]!), e3().neg())
+}
+
+fn test_commutator_anticommutator() {
+	assert mv_equal(e1().commutator(e2()), mv_bivector(1.0, 0.0, 0.0))
+	assert mv_equal(e1().commutator(e1()), mv_zero())
+	assert mv_equal(e1().anticommutator(e2()), mv_zero())
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).commutator(mv_bivector(0.0, 0.0, 1.0)), mv_bivector(0.0, 1.0, 0.0))
+}
+
+fn test_contractions() {
+	assert mv_equal(e1().lc(mv_bivector(1.0, 0.0, 0.0)), e2())
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).lc(e1()), mv_zero())
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).rc(e1()), e2().neg())
+	assert mv_equal(e1().rc(mv_bivector(1.0, 0.0, 0.0)), mv_zero())
+	assert mv_equal(mv_bivector(1.0, 0.0, 0.0).lc(mv_bivector(0.0, 0.0, 1.0)), mv_zero())
+}
