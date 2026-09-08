@@ -1,28 +1,43 @@
-module e3ga
+module pga
 
-// Plain 3D Euclidean Geometric Algebra Cl(3,0) — the "ordinary" GA, in
-// contrast to the 5D conformal algebra of the parent cga module.
+// 3D Projective Geometric Algebra P(R*_{3,0,1}) = Cl(3,0,1) — the
+// "plane-based" (dual) PGA: the algebra of Euclidean 3D point/line/plane
+// geometry, successor of the 8-component Euclidean module.
 //
-// A multivector has 8 components.  Each basis blade is indexed by its mask
-// (bit 0 = e1, bit 1 = e2, bit 2 = e3), so the geometric product of two basis
-// blades is a pure XOR/mask-sign computation:
+// Basis generators {e1, e2, e3, e0} with e1^2 = e2^2 = e3^2 = +1, e0^2 = 0,
+// generators anticommute pairwise.  Every basis blade is indexed by its
+// bitmask (bit 0 = e1, bit 1 = e2, bit 2 = e3, bit 3 = e0), so the geometric
+// product of two basis blades is a XOR/sign computation with an extra metric
+// factor when both factors contain the null generator e0:
 //
-//   [0] grade 0: 1
-//   [1] [2] [4]  grade 1: e1, e2, e3
-//   [3] [5] [6]  grade 2: e12, e13, e23
-//   [7] grade 3: I = e123   (pseudoscalar, I^2 = -1)
+//   [0] grade 0: 1                        [8]  grade 1: e0    (plane at infinity)
+//   [1][2][4]   grade 1: e1, e2, e3       [9][10][12] grade 2: e1e0, e2e0, e3e0 (ideal lines)
+//   [3][5][6]   grade 2: e12, e13, e23    [11][13][14] grade 3: e12e0, e13e0, e23e0
+//   [7] grade 3: e123 (the origin point)  [15] grade 4: I = e123e0 (null, I^2 = 0)
 //
-// Metric: e1^2 = e2^2 = e3^2 = +1 and ei ej = -ej ei for i != j.  The even
-// subalgebra (scalar + bivector) is isomorphic to the quaternions: a unit
-// rotor R = cos(t/2) - sin(t/2) . Bhat rotates by v' = R v R~ (apply).
+// Geometric semantics (the reason for the degenerate metric):
+//   plane = grade-1 vector  n + d e0         (n unit normal, distance d)
+//   line  = grade-2 blade   direction + moment (Euclidean, squares negative)
+//   point = grade-3 blade   e123 + x e032 + y e013 + z e021
+//   meet  = outer product (plane ^ plane = line, plane ^ line = point)
+//   join  = regressive product (point v point = line, three points = plane)
+//   motor  = even-grade versor (rotation + translation), M X M~ applies it.
+//
+// The pseudoscalar I = e123 e0 squares to 0 (nilpotent), so the Hodge dual is
+// NOT multiplication by I; it is the blade-wise complement below (PGA4CS
+// Table 4 / bivector.net, converted to this basis order), and
+// dual(dual(x)) = (-1)^grade(x) . x.
 import math
 
-pub const num_components = 8
-pub const num_grades = 4
+pub const num_components = 16
+pub const num_grades = 5
+
+// Metric of the four generators in bit order (e1, e2, e3, e0).
+const generator_metric = [1.0, 1.0, 1.0, 0.0]
 
 pub struct Multivector {
 pub mut:
-	values [8]f64
+	values [16]f64
 }
 
 // --- constructors -----------------------------------------------------------
@@ -39,27 +54,50 @@ pub fn mv_scalar(s f64) Multivector {
 	return m
 }
 
-// mv_vector builds a vector (grade 1) from euclidean components (x, y, z).
-pub fn mv_vector(x f64, y f64, z f64) Multivector {
+// mv_vector builds a plane (grade-1) from coefficients (a, b, c, d): the
+// plane a x + b y + c z + d = 0.
+pub fn mv_vector(a f64, b f64, c f64, d f64) Multivector {
 	mut m := Multivector{}
-	m.values[1] = x
-	m.values[2] = y
-	m.values[4] = z
+	m.values[1] = a
+	m.values[2] = b
+	m.values[4] = c
+	m.values[8] = d
 	return m
 }
 
-// mv_bivector builds a bivector (grade 2) from canonical components
-// (e12, e13, e23).
-pub fn mv_bivector(b12 f64, b13 f64, b23 f64) Multivector {
+// mv_bivector builds a bivector from the six components in the order
+// (e12, e13, e23, e1e0, e2e0, e3e0).
+pub fn mv_bivector(b12 f64, b13 f64, b23 f64, b01 f64, b02 f64, b03 f64) Multivector {
 	mut m := Multivector{}
 	m.values[3] = b12
 	m.values[5] = b13
 	m.values[6] = b23
+	m.values[9] = b01
+	m.values[10] = b02
+	m.values[12] = b03
 	return m
 }
 
-// pseudoscalar returns I = e1 e2 e3 (squares to -1).
+// mv_trivector builds a trivector from the four components in the order
+// (e123, e12e0, e13e0, e23e0) — useful for raw point-like blades.
+pub fn mv_trivector(t123 f64, t120 f64, t130 f64, t230 f64) Multivector {
+	mut m := Multivector{}
+	m.values[7] = t123
+	m.values[11] = t120
+	m.values[13] = t130
+	m.values[14] = t230
+	return m
+}
+
+// pseudoscalar returns I = e123 e0 (squares to 0).
 pub fn pseudoscalar() Multivector {
+	mut m := Multivector{}
+	m.values[15] = 1.0
+	return m
+}
+
+// e123 returns I3 = e1 e2 e3, the Euclidean pseudoscalar (squares to -1).
+pub fn e123() Multivector {
 	mut m := Multivector{}
 	m.values[7] = 1.0
 	return m
@@ -67,15 +105,20 @@ pub fn pseudoscalar() Multivector {
 
 // Basis vectors (grade 1).  Fresh values per call.
 pub fn e1() Multivector {
-	return mv_vector(1.0, 0.0, 0.0)
+	return mv_vector(1.0, 0.0, 0.0, 0.0)
 }
 
 pub fn e2() Multivector {
-	return mv_vector(0.0, 1.0, 0.0)
+	return mv_vector(0.0, 1.0, 0.0, 0.0)
 }
 
 pub fn e3() Multivector {
-	return mv_vector(0.0, 0.0, 1.0)
+	return mv_vector(0.0, 0.0, 1.0, 0.0)
+}
+
+// e0 is the plane at infinity.
+pub fn e0() Multivector {
+	return mv_vector(0.0, 0.0, 0.0, 1.0)
 }
 
 // --- component access -------------------------------------------------------
@@ -96,19 +139,20 @@ pub fn (m Multivector) scalar_part() f64 {
 	return m.values[0]
 }
 
-// vector_part returns the three grade-1 components (x, y, z).
-pub fn (m Multivector) vector_part() [3]f64 {
-	return [m.values[1], m.values[2], m.values[4]]!
+// vector_part returns the four grade-1 components (e1, e2, e3, e0).
+pub fn (m Multivector) vector_part() [4]f64 {
+	return [m.values[1], m.values[2], m.values[4], m.values[8]]!
 }
 
-// bivector_part returns the three grade-2 components (e12, e13, e23).
-pub fn (m Multivector) bivector_part() [3]f64 {
-	return [m.values[3], m.values[5], m.values[6]]!
+// bivector_part returns the six grade-2 components in the order
+// (e12, e13, e23, e1e0, e2e0, e3e0).
+pub fn (m Multivector) bivector_part() [6]f64 {
+	return [m.values[3], m.values[5], m.values[6], m.values[9], m.values[10], m.values[12]]!
 }
 
-// pseudoscalar_part returns the grade-3 component.
+// pseudoscalar_part returns the grade-4 component.
 pub fn (m Multivector) pseudoscalar_part() f64 {
-	return m.values[7]
+	return m.values[15]
 }
 
 // is_zero reports whether all components are approximately zero.
@@ -219,9 +263,8 @@ pub fn (m Multivector) str() string {
 // --- algebra ----------------------------------------------------------------
 
 // gp computes the geometric product.  Basis-blade masks multiply by XOR; the
-// sign counts inversions: each pair (i in b, j in a) with j > i contributes a
-// swap.  Common basis factors square to +1 (positive-definite metric) and are
-// removed by the XOR.
+// sign counts inversions over the generator list; a shared e0 factor makes
+// the term vanish because e0^2 = 0.
 pub fn (m Multivector) gp(o Multivector) Multivector {
 	mut res := Multivector{}
 	for ma in 0 .. num_components {
@@ -234,30 +277,41 @@ pub fn (m Multivector) gp(o Multivector) Multivector {
 			if b == 0.0 {
 				continue
 			}
-			dst, sign := gp_blade(ma, mb)
-			res.values[dst] += sign * a * b
+			dst, coeff := gp_blade(ma, mb)
+			if coeff == 0.0 {
+				continue
+			}
+			res.values[dst] += coeff * a * b
 		}
 	}
 	return res
 }
 
-// gp_blade returns the product of two basis blades as (result mask, scalar sign).
+// gp_blade returns the product of two basis blades as (result mask, coeff).
 fn gp_blade(ma int, mb int) (int, f64) {
 	mut swaps := 0
-	for i in 0 .. 3 {
+	for i in 0 .. 4 {
 		if mb & (1 << i) != 0 {
 			swaps += popcount(ma >> (i + 1))
+		}
+	}
+	// common basis factors square to their metric; the null generator e0
+	// squares to 0, so any shared e0 factor annihilates the term.
+	mut coeff := 1.0
+	for i in 0 .. 4 {
+		if (ma & mb) & (1 << i) != 0 {
+			coeff *= generator_metric[i]
 		}
 	}
 	mut sign := 1.0
 	if swaps % 2 != 0 {
 		sign = -1.0
 	}
-	return ma ^ mb, sign
+	return ma ^ mb, sign * coeff
 }
 
-// op computes the outer product a ^ b: zero for blades sharing a basis
-// factor, else +/- the union blade (same sign rule as gp).
+// op computes the outer product a ^ b (the PGA meet): zero for blades
+// sharing a basis factor, else +/- the union blade.
 pub fn (m Multivector) op(o Multivector) Multivector {
 	mut res := Multivector{}
 	for ma in 0 .. num_components {
@@ -273,8 +327,8 @@ pub fn (m Multivector) op(o Multivector) Multivector {
 			if ma & mb != 0 {
 				continue
 			}
-			dst, sign := gp_blade(ma, mb)
-			res.values[dst] += sign * a * b
+			dst, coeff := gp_blade(ma, mb)
+			res.values[dst] += coeff * a * b
 		}
 	}
 	return res
@@ -300,148 +354,6 @@ pub fn (m Multivector) ip(o Multivector) Multivector {
 		}
 	}
 	return res
-}
-
-// reverse applies the reversal involution: grade-k blade * (-1)^(k(k-1)/2).
-pub fn (m Multivector) reverse() Multivector {
-	mut res := Multivector{}
-	for i in 0 .. num_components {
-		k := popcount(i)
-		if (k * (k - 1) / 2) % 2 != 0 {
-			res.values[i] = -m.values[i]
-		} else {
-			res.values[i] = m.values[i]
-		}
-	}
-	return res
-}
-
-// grade_involution flips the sign of odd-grade components.
-pub fn (m Multivector) grade_involution() Multivector {
-	mut res := Multivector{}
-	for i in 0 .. num_components {
-		if popcount(i) % 2 != 0 {
-			res.values[i] = -m.values[i]
-		} else {
-			res.values[i] = m.values[i]
-		}
-	}
-	return res
-}
-
-// conjugate is the Clifford conjugate (reverse + grade involution).
-pub fn (m Multivector) conjugate() Multivector {
-	return m.reverse().grade_involution()
-}
-
-// dual is the Hodge dual: multiply by I^-1 = -I (I^2 = -1).
-// A plane maps to its normal, e.g. dual(e12) = e3.
-pub fn (m Multivector) dual() Multivector {
-	return m.gp(pseudoscalar().neg())
-}
-
-// undual inverts dual (dual(dual(x)) = -x, so undual = -dual).
-pub fn (m Multivector) undual() Multivector {
-	return m.dual().neg()
-}
-
-// meet returns the largest common subblade (intersection) of the blades self
-// and o.  When their union spans the full 3D space the classic dual formula
-// (self* ^ o*)* applies; containment cases return the contained blade, e.g.
-// meet(e1, e12) = e1 and meet(e12, e13) = e1.  Non-blade inputs panic.
-pub fn (m Multivector) meet(o Multivector) Multivector {
-	if m.is_zero() || o.is_zero() {
-		return mv_zero()
-	}
-	ga := m.blade_grade()
-	gb := o.blade_grade()
-	if ga < 0 || gb < 0 {
-		panic('meet: arguments must be blades')
-	}
-	if ga == 0 || gb == 0 {
-		return mv_zero()
-	}
-	if !m.op(o).is_zero() {
-		return mv_zero()
-	}
-	// The blades share a non-trivial subblade.
-	if ga < gb {
-		return m
-	}
-	if gb < ga {
-		return o
-	}
-	// Equal grades: parallel vectors / coincident planes / the pseudoscalar
-	// itself share their whole span; distinct planes (possible for grade 2
-	// in 3D) meet in their intersection line.
-	d := m.dual().op(o.dual())
-	if d.is_zero() {
-		return m
-	}
-	return d.dual()
-}
-
-// join returns the smallest blade (union span) containing both blades self
-// and o: their wedge when they are independent, the larger containing blade
-// when they share a subblade, or the pseudoscalar for two distinct planes.
-pub fn (m Multivector) join(o Multivector) Multivector {
-	if m.is_zero() {
-		return o
-	}
-	if o.is_zero() {
-		return m
-	}
-	ga := m.blade_grade()
-	gb := o.blade_grade()
-	if ga < 0 || gb < 0 {
-		panic('join: arguments must be blades')
-	}
-	if ga == 0 {
-		return o
-	}
-	if gb == 0 {
-		return m
-	}
-	w := m.op(o)
-	if !w.is_zero() {
-		return w
-	}
-	if ga < gb {
-		return o
-	}
-	if gb < ga {
-		return m
-	}
-	if m.dual().op(o.dual()).is_zero() {
-		return m
-	}
-	return pseudoscalar()
-}
-
-// norm returns the euclidean norm sqrt(|<self.reverse(self)>_0|).
-pub fn (m Multivector) norm() f64 {
-	s := m.gp(m.reverse()).values[0]
-	return math.sqrt(math.abs(s))
-}
-
-// normalized returns the unit-norm multivector (or zero if degenerate).
-pub fn (m Multivector) normalized() Multivector {
-	n := m.norm()
-	if n < 1e-12 {
-		return mv_zero()
-	}
-	return m.div_scalar(n)
-}
-
-// inverse returns A^-1 = rev(A)/(A rev(A))_0 for an invertible blade or
-// versor; a general multivector with a non-scalar A*rev(A) panics.
-pub fn (m Multivector) inverse() Multivector {
-	prod := m.gp(m.reverse())
-	s := prod.values[0]
-	if math.abs(s) < 1e-12 || !prod.grade(0).eq(prod) {
-		panic('inverse: only blades and versors with nonzero norm are supported')
-	}
-	return m.reverse().div_scalar(s)
 }
 
 // lc is the left contraction A _| B: sums of <_A_g _B_h>_(h-g) for g <= h.
@@ -482,119 +394,243 @@ pub fn (m Multivector) rc(o Multivector) Multivector {
 	return res
 }
 
-// commutator returns [self, o] = (self o - o self) / 2, the Lie bracket of
-// the even subalgebra when both operands are even.
-pub fn (m Multivector) commutator(o Multivector) Multivector {
-	return m.gp(o).sub(o.gp(m)).mul_scalar(0.5)
-}
-
-// anticommutator returns {self, o} = (self o + o self) / 2.
-pub fn (m Multivector) anticommutator(o Multivector) Multivector {
-	return m.gp(o).add(o.gp(m)).mul_scalar(0.5)
-}
-
-// proj projects self onto the blade o: (self . o) o^-1.
-pub fn (m Multivector) proj(o Multivector) Multivector {
-	return m.ip(o).gp(o.inverse())
-}
-
-// rej returns the part of self orthogonal to the blade o.
-pub fn (m Multivector) rej(o Multivector) Multivector {
-	return m.sub(m.proj(o))
-}
-
-// reflect mirrors self across the plane with the given normal:
-// v' = -n v n, where n is the normalized normal; works for vectors and blades.
-pub fn (m Multivector) reflect(normal [3]f64) Multivector {
-	len2 := normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]
-	if len2 < 1e-18 {
-		panic('reflect: zero normal')
+// reverse applies the reversal involution: grade-k blade * (-1)^(k(k-1)/2).
+pub fn (m Multivector) reverse() Multivector {
+	mut res := Multivector{}
+	for i in 0 .. num_components {
+		k := popcount(i)
+		if (k * (k - 1) / 2) % 2 != 0 {
+			res.values[i] = -m.values[i]
+		} else {
+			res.values[i] = m.values[i]
+		}
 	}
-	n := mv_vector(normal[0], normal[1], normal[2]).div_scalar(math.sqrt(len2))
-	return n.gp(m).gp(n).neg()
+	return res
 }
 
-// --- rotors (even subalgebra = quaternions) ---------------------------------
+// grade_involution flips the sign of odd-grade components.
+pub fn (m Multivector) grade_involution() Multivector {
+	mut res := Multivector{}
+	for i in 0 .. num_components {
+		if popcount(i) % 2 != 0 {
+			res.values[i] = -m.values[i]
+		} else {
+			res.values[i] = m.values[i]
+		}
+	}
+	return res
+}
 
-// rotor returns the rotation rotor by `angle` radians about `axis`:
-// R = exp(-(angle/2) . B) with B the unit bivector of the axis plane.
-// Rotating a vector: v' = R v R~ (apply).
+// conjugate is the Clifford conjugate (reverse + grade involution).
+pub fn (m Multivector) conjugate() Multivector {
+	return m.reverse().grade_involution()
+}
+
+// --- Hodge dual and regressive joins ----------------------------------------
+
+// dual is the PGA Hodge / Poincare complement: blade-wise with the signs of
+// PGA4CS Table 4 (bivector.net), converted to the (e1,e2,e3,e0) bit order.
+// dual(dual(x)) = (-1)^grade(x) . x.
+pub fn (m Multivector) dual() Multivector {
+	mut res := Multivector{}
+	for i in 0 .. num_components {
+		if m.values[i] != 0.0 {
+			res.values[dual_dst[i]] += dual_sign[i] * m.values[i]
+		}
+	}
+	return res
+}
+
+// undual returns (-1)^grade(x) . dual(x), the inverse of dual.
+pub fn (m Multivector) undual() Multivector {
+	mut res := Multivector{}
+	for i in 0 .. num_components {
+		if m.values[i] != 0.0 {
+			sgn := dual_sign[i]
+			if popcount(dual_dst[i]) % 2 != 0 {
+				// (-1)^grade of the result: odd grades flip
+				res.values[dual_dst[i]] += -sgn * m.values[i]
+			} else {
+				res.values[dual_dst[i]] += sgn * m.values[i]
+			}
+		}
+	}
+	return res
+}
+
+// meet returns the intersection of two blades: the outer product (native PGA
+// incidence), e.g. meet(plane, plane) = line, meet(plane, line) = point.
+pub fn (m Multivector) meet(o Multivector) Multivector {
+	return m.op(o)
+}
+
+// join returns the union of two blades via the regressive product
+// (self* ^ o*)*, e.g. join(point, point) = line, join(line, point) = plane.
+pub fn (m Multivector) join(o Multivector) Multivector {
+	return m.dual().op(o.dual()).dual()
+}
+
+// --- norms and inverses -----------------------------------------------------
+
+// norm returns sqrt(|<self.reverse(self)>_0|); lines and rotors have norm 1,
+// null blades (ideal lines, points) have norm 0.
+pub fn (m Multivector) norm() f64 {
+	s := m.gp(m.reverse()).values[0]
+	return math.sqrt(math.abs(s))
+}
+
+// normalized returns the unit-norm multivector (or zero if degenerate).
+pub fn (m Multivector) normalized() Multivector {
+	n := m.norm()
+	if n < 1e-12 {
+		return mv_zero()
+	}
+	return m.div_scalar(n)
+}
+
+// inverse returns A^-1 = rev(A) (s - p I)/s^2 with A rev(A) = s + p I — exact
+// for blades and motors (unit elements give rev(A)); null elements (points,
+// ideal lines) panic.
+pub fn (m Multivector) inverse() Multivector {
+	prod := m.gp(m.reverse())
+	s := prod.values[0]
+	p := prod.values[15]
+	if math.abs(s) < 1e-12 {
+		panic('inverse: degenerate null element')
+	}
+	// (s + p I)^-1 = (s - p I) / s^2 since I^2 = 0
+	inv := m.reverse().mul_scalar(s).sub(m.reverse().gp(pseudoscalar()).mul_scalar(p))
+	return inv.div_scalar(s * s)
+}
+
+// --- motion (the even subalgebra: dual quaternions of SE(3)) -----------------
+
+// rotor returns the rotation rotor by `angle` radians about the axis through
+// the origin in direction `axis`: R = exp(-angle/2 . L) with L = unit line.
 pub fn rotor(axis [3]f64, angle f64) Multivector {
-	axis_len := math.sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2])
-	if axis_len < 1e-12 {
+	len2 := axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]
+	if len2 < 1e-18 {
 		panic('rotor: zero axis')
 	}
+	inv_len := 1.0 / math.sqrt(len2)
+	u := mv_vector(axis[0] * inv_len, axis[1] * inv_len, axis[2] * inv_len, 0.0)
+	// unit line through the origin: u _| I3
+	line := u.lc(e123())
 	half := angle / 2.0
-	c := math.cos(half)
-	s := math.sin(half)
-	// Axis n maps to the plane bivector n I with parts (n3, -n2, n1).
-	b12 := axis[2] / axis_len
-	b13 := -axis[1] / axis_len
-	b23 := axis[0] / axis_len
-	return mv_scalar(c).sub(mv_bivector(s * b12, s * b13, s * b23))
+	return mv_scalar(math.cos(half)).sub(line.mul_scalar(math.sin(half)))
 }
 
-// apply returns r v r~ for a unit rotor; rotates a vector (or blade) by r.
-pub fn (r Multivector) apply(v Multivector) Multivector {
-	return r.gp(v).gp(r.reverse())
+// translator returns the translator T = exp(-d/2 . e0 ^ t) = 1 - (e0 ^ t)/2
+// (the ideal line e0 ^ t is nilpotent, so the series truncates).
+pub fn translator(displacement [3]f64) Multivector {
+	t := mv_vector(displacement[0], displacement[1], displacement[2], 0.0)
+	return mv_scalar(1.0).sub(e0().op(t).mul_scalar(0.5))
 }
 
-// exp exponentiates an even multivector (scalar + bivector): exp(s + B) =
-// e^s (cos|B| + B sin|B|/|B|).  Odd-grade components are rejected; any
-// bivector B squares to -|B|^2, which is what the closed form uses.
+// motor builds the rigid motion M = T . R (rotate then translate).
+pub fn motor(axis [3]f64, angle f64, displacement [3]f64) Multivector {
+	return translator(displacement).gp(rotor(axis, angle))
+}
+
+// motor_identity returns the identity motor.
+pub fn motor_identity() Multivector {
+	return mv_scalar(1.0)
+}
+
+// apply returns M . v . M~ for a versor M; rotates/translates points, lines
+// and planes.
+pub fn (m Multivector) apply(v Multivector) Multivector {
+	return m.gp(v).gp(m.reverse())
+}
+
+// exp exponentiates a scalar + bivector to the motor group: exp(s + B) =
+// e^s exp(B).  Simple Euclidean bivectors use cos/sin, ideal (nilpotent)
+// bivectors truncate at 1 + B, and general screw bivectors use the axis-pair
+// closed form.
 pub fn (m Multivector) exp() Multivector {
-	if m.values[1] != 0.0 || m.values[2] != 0.0 || m.values[4] != 0.0 || m.values[7] != 0.0 {
-		panic('exp: only even (scalar + bivector) multivectors are supported')
+	if !m.grade(1).is_zero() || !m.grade(3).is_zero() || !m.grade(4).is_zero() {
+		panic('exp: only scalar + bivector are supported')
 	}
-	b := m.bivector_part()
-	b_norm := math.sqrt(b[0] * b[0] + b[1] * b[1] + b[2] * b[2])
-	e := math.exp(m.values[0])
-	if b_norm < 1e-12 {
-		return mv_scalar(e)
+	scale := math.exp(m.values[0])
+	b := m.grade(2)
+	if b.is_zero() {
+		return mv_scalar(scale)
 	}
-	c := e * math.cos(b_norm)
-	k := e * math.sin(b_norm) / b_norm
-	return mv_scalar(c).add(mv_bivector(b[0] * k, b[1] * k, b[2] * k))
+	b2 := b.gp(b)
+	s := b2.values[0]
+	if math.abs(s) < 1e-12 {
+		// nilpotent: B^2 = 0 (pure translation / ideal line)
+		return mv_scalar(scale).add(b.mul_scalar(scale))
+	}
+	p := b2.values[15]
+	u := math.sqrt(-s)
+	v := -p / (2.0 * u)
+	perp := b.gp(pseudoscalar()).div_scalar(u) // theta_hat _| = B.I / u
+	hat := b.sub(perp.mul_scalar(v)).div_scalar(u)
+	cu := scale * math.cos(u)
+	su := scale * math.sin(u)
+	return mv_scalar(cu).add(hat.mul_scalar(su)).gp(mv_scalar(1.0).add(perp.mul_scalar(v)))
 }
 
-// log returns the bivector B with exp(B) = self for a unit rotor.  Its
-// magnitude is the half angle: R = cos(t/2) - sin(t/2) Bhat gives
-// log(R) = -(t/2) Bhat.
+// log returns the bivector B with exp(B) = self for a unit motor.  Pure
+// translations return their ideal line; the -1 motor panics.
 pub fn (m Multivector) log() Multivector {
-	s := m.values[0]
-	b := m.bivector_part()
-	b_norm := math.sqrt(b[0] * b[0] + b[1] * b[1] + b[2] * b[2])
-	if b_norm < 1e-12 {
-		if s > 0.0 {
+	a := m.values[0]
+	b := m.grade(2)
+	c := m.values[15]
+	sin_u := math.sqrt(math.max(0.0, 1.0 - a * a))
+	if sin_u < 1e-9 {
+		if b.is_zero() {
+			if a < 0.0 {
+				panic('log: the -1 motor has no unique logarithm')
+			}
 			return mv_zero()
 		}
-		panic('log: the -1 rotor has no unique logarithm')
+		return b // pure translation
 	}
-	phi := math.atan2(b_norm, s) // half angle, in [0, pi]
-	return mv_bivector(phi / b_norm * b[0], phi / b_norm * b[1], phi / b_norm * b[2])
+	u := math.atan2(sin_u, a)
+	v := -c / sin_u
+	perp := b.gp(pseudoscalar()).div_scalar(sin_u) // sin_u . theta_hat _| = B.I
+	beta := v * math.cos(u)
+	hat := b.sub(perp.mul_scalar(beta)).div_scalar(sin_u)
+	return hat.mul_scalar(u).add(perp.mul_scalar(v))
 }
 
-// axis_angle extracts the unit axis and rotation angle (in [0, 2*pi]) of a
-// unit rotor.
-pub fn (r Multivector) axis_angle() ([3]f64, f64) {
-	b := r.log()
-	bp := b.bivector_part()
-	b_norm := math.sqrt(bp[0] * bp[0] + bp[1] * bp[1] + bp[2] * bp[2])
-	if b_norm < 1e-12 {
-		return [1.0, 0.0, 0.0]!, 0.0
-	}
-	// b parts are -(t/2)(n3, -n2, n1), so axis = (-b23, b13, -b12)/|b|.
-	axis := [-bp[2] / b_norm, bp[1] / b_norm, -bp[0] / b_norm]!
-	return axis, 2.0 * b_norm
+// interpolate slerps between motors m1 and m2: M(t) = m1 . exp(t . log(m1~ . m2)).
+pub fn interpolate(m1 Multivector, m2 Multivector, t f64) Multivector {
+	rel := m1.reverse().gp(m2)
+	return m1.gp(rel.log().mul_scalar(t).exp())
 }
 
-// interpolate slerps between rotors r1 and r2: R(t) = r1 . exp(t . log(r1~ . r2)).
-pub fn interpolate(r1 Multivector, r2 Multivector, t f64) Multivector {
-	rel := r1.reverse().gp(r2)
-	return r1.gp(rel.log().mul_scalar(t).exp())
+// to_matrix returns the equivalent 4x4 homogeneous transform [R|t], flattened
+// row-major into 16 components (row r, col c is at index 4*r + c).
+pub fn (m Multivector) to_matrix() [16]f64 {
+	origin_t := m.apply(point(0.0, 0.0, 0.0))
+	px := m.apply(point(1.0, 0.0, 0.0)).coords()
+	py := m.apply(point(0.0, 1.0, 0.0)).coords()
+	pz := m.apply(point(0.0, 0.0, 1.0)).coords()
+	tx := origin_t.coords()
+	return [
+		px[0] - tx[0],
+		py[0] - tx[0],
+		pz[0] - tx[0],
+		tx[0],
+		px[1] - tx[1],
+		py[1] - tx[1],
+		pz[1] - tx[1],
+		tx[1],
+		px[2] - tx[2],
+		py[2] - tx[2],
+		pz[2] - tx[2],
+		tx[2],
+		0.0,
+		0.0,
+		0.0,
+		1.0,
+	]!
 }
 
-// --- helpers ----------------------------------------------------------------
+// --- blade helpers ----------------------------------------------------------
 
 // blade_grade returns the grade of a pure blade, or -1 when the multivector
 // holds mixed grades or is zero.
@@ -612,6 +648,8 @@ fn (m Multivector) blade_grade() int {
 	return g
 }
 
+// --- helpers ----------------------------------------------------------------
+
 // popcount counts the set bits of a small non-negative integer.
 fn popcount(x int) int {
 	mut n := 0
@@ -623,17 +661,68 @@ fn popcount(x int) int {
 	return n
 }
 
-// blade_name returns the symbol of a basis blade, canonical within its grade.
+// blade_name returns the symbol of a basis blade, sorted by generator
+// (e1, e2, e3, e0).
 fn blade_name(i int) string {
 	return match i {
 		0 { '1' }
 		1 { 'e1' }
 		2 { 'e2' }
 		4 { 'e3' }
+		8 { 'e0' }
 		3 { 'e12' }
 		5 { 'e13' }
 		6 { 'e23' }
-		7 { 'I' }
+		9 { 'e1e0' }
+		10 { 'e2e0' }
+		12 { 'e3e0' }
+		7 { 'e123' }
+		11 { 'e12e0' }
+		13 { 'e13e0' }
+		14 { 'e23e0' }
+		15 { 'I' }
 		else { '?' }
 	}
 }
+
+// The Hodge complement: blade -> (complement slot, sign).  Converted from
+// PGA4CS Table 4 / bivector.net: 1<->I, e0<->e123, e1<->e032, e2<->e013,
+// e3<->e021, e01<->e23, e02<->e31, e03<->e12, e032->-e1, e013->-e2,
+// e021->-e3, e123->-e0.
+const dual_dst = [
+	15, // 1    -> I
+	14, // e1   -> e032 (= e23e0 slot)
+	13, // e2   -> e013 (= e13e0 slot)
+	12, // e12  -> e03 (= e3e0 slot)
+	11, // e3   -> e021 (= e12e0 slot)
+	10, // e13  -> -e02 (= e2e0 slot)
+	9, // e23  -> e01 (= e1e0 slot)
+	8, // e123 -> -e0
+	7, // e0   -> e123
+	6, // e01  -> e23
+	5, // e02  -> -e31 (= e13 slot, negated)
+	4, // e021 -> -e3
+	3, // e03  -> e12
+	2, // e013 -> -e2
+	1, // e032 -> -e1
+	0, // I    -> 1
+]
+
+const dual_sign = [
+	1.0,
+	1.0,
+	1.0,
+	1.0,
+	1.0,
+	-1.0,
+	1.0,
+	-1.0,
+	1.0,
+	1.0,
+	-1.0,
+	-1.0,
+	1.0,
+	-1.0,
+	-1.0,
+	1.0,
+]

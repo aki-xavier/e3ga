@@ -1,6 +1,6 @@
 Module {
-	name: 'e3ga'
-	description: 'Plain 3D Euclidean Geometric Algebra Cl(3,0): 8-component multivectors + rotors, CPU f64.'
+	name: 'pga'
+	description: 'Projective Geometric Algebra Cl(3,0,1): 16-component multivectors, blades and motors for 3D Euclidean geometry (plane-based / dual PGA).'
 	version: '0.1.0'
 	license: 'MIT'
 	dependencies: []
